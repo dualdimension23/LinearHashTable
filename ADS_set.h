@@ -150,9 +150,9 @@ public:
     
     // We need to find the bucket where the key shall be inserted
     size_t index { getIndex(key) };
-    std::cout << "Inserting " << key << " at index " << index << '\n';
+    //std::cout << "Inserting " << key << " at index " << index << '\n';
     Bucket* bucket { _buckets[index] };
-    std::cout << "Bucket found...\n";
+    //std::cout << "Bucket found...\n";
 
     // Bucket is now found, for safety we check if the bucket still has overflow buckets,
     // since we want to insert the key at the very end
@@ -164,7 +164,7 @@ public:
 
     // ( 1 ) 
     if (bucket->isFull()) {
-      std::cout << "Bucket is full...\n";
+      //std::cout << "Bucket is full...\n";
       // We create a new overflow bucket, with isPrimary set to false
       bucket->_overflow = new Bucket(false);
       // Go into the overflow bucket
@@ -180,9 +180,9 @@ public:
     } else {
       // ( 2 ) Okay, if the bucket is not full, we just need to find the right spot to insert
       // which is: [bucket->_size]
-      std::cout << "Bucket is not full...\n";
+      //std::cout << "Bucket is not full...\n";
       bucket->_records[bucket->_size] = key;
-      std::cout << "Set key at index " << bucket->_size << " to " << key << '\n';
+      //std::cout << "Set key at index " << bucket->_size << " to " << key << '\n';
       ++bucket->_size;
       if(needsSplit)
         ++_elements;
@@ -205,15 +205,14 @@ public:
   void redistributeBucket(Bucket bucket) {
     // Redistribution of keys after split has happened
     // First, we need to increment nextToSplit, otherwise keys would be inserted into the bucket they are currently stored in
-    std::cout << "Redistributing... \n";
-    dump();
+    //std::cout << "Redistributing... \n";
     ++_nextToSplit;
     bool isPrimary { true };
-    std::cout << "Temporary Bucket Size: " << bucket._size << '\n';
+    //std::cout << "Temporary Bucket Size: " << bucket._size << '\n';
     do {
       if(!isPrimary) {
         bucket = *bucket._overflow;
-        std::cout << "Another overflow...\n";
+        //std::cout << "Another overflow...\n";
       }
       isPrimary = false;
       for(size_t index { 0 }; index < bucket._size; ++index) 
@@ -224,14 +223,15 @@ public:
 
   void enoughSize() {
     // In split case ( 1 ) was the case
-    std::cout << "Entered enoughSize...\n_nextToSplit: " << _nextToSplit << '\n';
+    //std::cout << "Entered enoughSize...\n_nextToSplit: " << _nextToSplit << '\n';
     // Lets get the bucket, which has to be rehashed
     Bucket* splitBucket { _buckets[_nextToSplit] };
     Bucket temporaryBucket { *splitBucket };
     Bucket emptyBucket {};
     *splitBucket = emptyBucket;
     // The values of this splitBucket still need to be redistributed on the now (1 larger domain) table
-    std::cout << "Redistributing bucket " << _nextToSplit << "...\n";
+    //std::cout << "Redistributing bucket " << _nextToSplit << "...\n";
+    //std::cout << "With bucket size: " << temporaryBucket._size << '\n';
     redistributeBucket(temporaryBucket);
 
     // We are now done redistributing our keys
@@ -249,11 +249,11 @@ public:
     // We have to create a new set with a even larger domain ( lets say 2 times as large ) 
     size_t new_size { (2 * _allocatedSize) + 1 };
     // First lets put our old set into a temporary set
-    std::cout << "Allocating memory...\n";
+    //std::cout << "Allocating memory...\n";
     Bucket** temporaryBuckets { _buckets };
     Bucket** newBuckets { new Bucket*[new_size] };
     for(size_t index { 0 }; index < new_size; ++index) newBuckets[index] = new Bucket;
-    std::cout << "Created new table...\n";
+    //std::cout << "Created new table...\n";
 
     // Okay, that's done. We can now set out actual set (_buckets) equal to the new set (newBuckets)
     _buckets = newBuckets;
@@ -281,29 +281,29 @@ public:
         // the depricated (old) bucket
         // and the empty (new) bucket
         Bucket* depricatedBucket { temporaryBuckets[index] };
-        Bucket* newBucket { newBuckets[index] };
+        Bucket* newBucket { _buckets[index] };
         // We literally just copy over the bucket
         *newBucket = *depricatedBucket;
       }
     }
-    std::cout << "Copied buckets...\n";
+    //std::cout << "Copied buckets...\n";
     
     // We have to access our splitBucket again
     Bucket* splitBucket { temporaryBuckets[_nextToSplit] };
-    std::cout << "Found splitBucket...\n";
+    //std::cout << "Found splitBucket...\n";
 
-    redistributeBucket(splitBucket);
-    std::cout << "Redistribution finished...\n";
+    redistributeBucket(*splitBucket);
+    //std::cout << "Redistribution finished...\n";
 
 
     // As for the "enoughSize" case, we need to check if the round is done
     checkRound();
 
     // Okay, so far so good. Now we can delete the temporary table again
-    for(size_t index { 0 }; index < old_size; ++index)
-      delete temporaryBuckets[index];
+    //for(size_t index { 0 }; index < old_size; ++index)
+    //  delete temporaryBuckets[index];
     delete[] temporaryBuckets;
-    std::cout << "Deleted temporary table...\n";
+    //std::cout << "Deleted temporary table...\n";
   }
 
 
@@ -314,7 +314,7 @@ public:
       // If so, we need to reset "nextToSplit" and enter the next round 
       _nextToSplit = 0;
       ++_roundNumber;
-      std::cout << "Round " << _roundNumber << '\n';
+      //std::cout << "Round " << _roundNumber << '\n';
       }
   }
 
@@ -335,10 +335,10 @@ public:
     o << "|    _nextToSplit: " << _nextToSplit << "                   \n";
     o << "---------------------------------------------------\n\n";
     
-    for(size_t index { 0 }; index < _size; ++index) {
+    for(size_t index { 0 }; index < _size + 1; ++index) {
       Bucket* bucket { _buckets[index] };
-      o << index << ": |";
-      bool isPrimary = true;
+      o << index << " Size: [" << bucket->_size << "]: |";
+      bool isPrimary { true };
       do {
         if(!isPrimary) {
           bucket = bucket->_overflow;
