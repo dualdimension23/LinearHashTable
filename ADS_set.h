@@ -58,17 +58,37 @@ private:
 
 public:
   ADS_set() {};
-  //ADS_set(std::initializer_list<key_type> ilist);
-  //template<typename InputIt> ADS_set(InputIt first, InputIt last);
-  //ADS_set(const ADS_set &other);
+  ADS_set(std::initializer_list<key_type> ilist) : ADS_set() {
+    insert(ilist);
+  }
+  template<typename InputIt> ADS_set(InputIt first, InputIt last) : ADS_set() {
+    insert(first, last);
+  }
+  ADS_set(const ADS_set &other) {
+    operator=(other);
+  }
   ~ADS_set() {
     for(size_t index { 0 }; index < _size; ++index)
       delete _buckets[index];
     delete[] _buckets;
   }
 
-  //ADS_set &operator=(const ADS_set &other);
-  //ADS_set &operator=(std::initializer_list<key_type> ilist);
+  ADS_set &operator=(const ADS_set &other) {
+    if (this == &other)
+      return *this;
+    clear();
+    for (const auto& i : other) {
+      insertKey(i);
+    }
+    return *this;
+  }
+
+  ADS_set &operator=(std::initializer_list<key_type> ilist) {
+    clear();
+    if(!ilist.size()) return *this;
+    insert(ilist);
+    return *this;
+  }
 
   size_t factor(size_t roundNumber) const {
       size_t base { 2 };
@@ -128,19 +148,119 @@ public:
     // Returns 1 if the key is found, else 0
     return !!findKey(key);
   }
-  //iterator find(const key_type &key) const;
 
-  //void clear();
-  //void swap(ADS_set &other);
+  iterator find(const key_type &key) const {
+    if (!_elements || !count(key)) return end();
+    size_t index { getIndex(key) };
+    int foundBucketIndex { -1 };
+    Bucket* bucket { _buckets[index] };
+    bool isPrimary { true };
+    bool breakWhile { false };
+    do {
+      if(!isPrimary) bucket = bucket->_overflow;
+      isPrimary = false;
+      for(size_t bucketIndex { 0 }; bucketIndex < bucket->_size; ++bucketIndex) {
+        if(key_equal{}(bucket->_records[bucketIndex], key)) {
+          foundBucketIndex = bucketIndex;
+          breakWhile = true;
+          break;
+        }
+      }
+      if(breakWhile) break;
+    } while(bucket->_overflow);
+    return Iterator(this, bucket, &key, index, foundBucketIndex);
+  }
+
+  void clear() {
+    clearTable();
+    setClassVariablesToDefault();
+  }
+
+  void clearTable() {
+    if(!_buckets) return;
+    for(size_t index { 0 }; index < _size; ++index)
+      delete _buckets[index];
+    delete[] _buckets;
+  }
+
+  void setClassVariablesToDefault() {
+    _buckets = nullptr;
+    _size = _allocatedSize = _roundNumber = _nextToSplit = _elements = 0;
+  }
+
+  void swap(ADS_set &other) {
+    // Swap Idiom
+    std::swap(_buckets, other._buckets);
+    std::swap(_nextToSplit, other._nextToSplit);
+    std::swap(_elements, other._elements);
+    std::swap(_allocatedSize, other._allocatedSize);
+    std::swap(_roundNumber, other._roundNumber);
+    std::swap(_size, other._size);
+  }
 
   void insert(std::initializer_list<key_type> ilist) {
     insert(std::begin(ilist), std::end(ilist));
   }
-  //std::pair<iterator,bool> insert(const key_type &key);
+  std::pair<iterator,bool> insert(const key_type &key) {
+    if(!_size) initializeSet();
+    if(count(key)) return std::make_pair(find(key), false);
+    insertKey(key);
+    return std::make_pair(Iterator(this, findOverflowBucket(key), &key, findIndex(key), findBucketIndex(key)), true);
+  }
+
+  Bucket* findOverflowBucket(const key_type& key) const {
+    if(!_elements) return nullptr;
+    size_t index { getIndex(key) };
+    Bucket* bucket { _buckets[index] };
+    bool isPrimary { true };
+    do {
+      if(!isPrimary) bucket = bucket->_overflow;
+      isPrimary = false;
+      for(size_t bucketIndex { 0 }; bucketIndex < bucket->_size; ++bucketIndex) {
+        if(key_equal{}(bucket->_records[bucketIndex], key))
+          return bucket;
+      }
+    } while(bucket->_overflow);
+    return nullptr;
+  }
+
+  int findIndex(const key_type& key) const {
+    if(!_elements) return -1;
+    size_t index { getIndex(key) };
+    Bucket* bucket { _buckets[index] };
+    bool isPrimary { true };
+    do {
+      if(!isPrimary) bucket = bucket->_overflow;
+      isPrimary = false;
+      for(size_t bucketIndex { 0 }; bucketIndex < bucket->_size; ++bucketIndex) {
+        if(key_equal{}(bucket->_records[bucketIndex], key))
+          return index;
+      }
+    } while(bucket->_overflow);
+    return -1;
+  }
+
+  int findBucketIndex(const key_type& key) const {
+    if(!_elements) return -1;
+    size_t index { getIndex(key) };
+    Bucket* bucket { _buckets[index] };
+    bool isPrimary { true };
+    do {
+      if(!isPrimary) bucket = bucket->_overflow;
+      isPrimary = false;
+      for(size_t bucketIndex { 0 }; bucketIndex < bucket->_size; ++bucketIndex) {
+        if(key_equal{}(bucket->_records[bucketIndex], key))
+          return bucketIndex;
+      }
+    } while(bucket->_overflow);
+    return -1;
+  }
+
   template<typename InputIt> void insert(InputIt first, InputIt last) {
     for (auto it { first }; it != last; ++it)
       insertKey(*it);
   }
+
   void insertKey(const key_type& key, bool needsSplit = true) {
     // For insertion there are serveral cases to be handled.
     // First we need to check if there is even memory allocated for the set
@@ -307,10 +427,49 @@ public:
   }
 
 
-  //size_type erase(const key_type &key);
+  size_type erase(const key_type &key) {
+    // If the key is not in the set, we return 0
+    if(!count(key)) return 0;
+    // Get right index and access bucket
+    size_t index { getIndex(key) };
+    Bucket* bucket { _buckets[index] };
+    bool isPrimary { true };
 
-  //const_iterator begin() const;
-  //const_iterator end() const;
+    do {
+      if(!isPrimary) bucket = bucket->_overflow;
+      isPrimary = false;
+      for(size_t index { 0 }; index < bucket->_size; ++index) {
+        if(key_equal{}(bucket->_records[index], key)) {
+          if(index == bucket->_size) {
+          } else {
+            for(size_t moveIndex { index + 1 }; moveIndex < bucket->_size; ++moveIndex)
+              bucket->_records[moveIndex - 1] = bucket->_records[moveIndex];
+          }
+          --_elements;
+          --bucket->_size;
+          return 1;
+        }
+      }
+    } while(bucket->_overflow);
+    return 1;
+  }
+
+  const_iterator begin() const {
+    if(!_elements || !_size) return end();
+    size_t index { 0 };
+    Bucket* bucket { _buckets[index] };
+    while(!bucket->_size && index < _size) {
+      if(!bucket->_overflow)
+        bucket = _buckets[++index];
+      else
+        bucket = bucket->_overflow;
+    }
+    Iterator it = Iterator(this, bucket, bucket->_records, index, 0);
+    return it;
+  }
+  const_iterator end() const {
+    return Iterator(this);
+  }
 
   void dump(std::ostream &o = std::cerr) const {
     // Visual Dump of the set
@@ -344,28 +503,110 @@ public:
     
   }
 
-  //friend bool operator==(const ADS_set &lhs, const ADS_set &rhs);
-  //friend bool operator!=(const ADS_set &lhs, const ADS_set &rhs);
+  friend bool operator==(const ADS_set &lhs, const ADS_set &rhs) {
+    if(lhs.size() != rhs.size()) return false;
+    for(size_t index { 0 }; index < lhs._size; ++index) {
+      Bucket* bucket { lhs._buckets[index] };
+      bool isPrimary { true };
+      do {
+        if(!isPrimary) bucket = bucket->_overflow;
+        isPrimary = false;
+        for(size_t bucketIndex { 0 }; bucketIndex < bucket->_size; ++bucketIndex) {
+          if(!rhs.count(bucket->_records[bucketIndex])) return false;
+      }
+      } while(bucket->_overflow);
+    }
+    return true;
+  }
+
+  friend bool operator!=(const ADS_set &lhs, const ADS_set &rhs) {
+    return !(lhs == rhs);
+  }
 };
 
-//template <typename Key, size_t N>
-//class ADS_set<Key,N>::Iterator {
-//public:
-//  using value_type = Key;
-//  using difference_type = std::ptrdiff_t;
-//  using reference = const value_type &;
-//  using pointer = const value_type *;
-//  using iterator_category = std::forward_iterator_tag;
-//
-//  explicit Iterator(/* implementation-dependent */);
-//  reference operator*() const;
-//  pointer operator->() const;
-//  Iterator &operator++();
-//  Iterator operator++(int);
-//  friend bool operator==(const Iterator &lhs, const Iterator &rhs);
-//  friend bool operator!=(const Iterator &lhs, const Iterator &rhs);
-//};
+template <typename Key, size_t N>
+class ADS_set<Key,N>::Iterator {
+public:
+  using value_type = Key;
+  using difference_type = std::ptrdiff_t;
+  using reference = const value_type &;
+  using pointer = const value_type *;
+  using iterator_category = std::forward_iterator_tag;
 
-//template <typename Key, size_t N> void swap(ADS_set<Key,N> &lhs, ADS_set<Key,N> &rhs) { lhs.swap(rhs); }
+private:
+  const ADS_set* _set;
+  const key_type* _key;
+  int _index;
+  int _bucketIndex;
+  Bucket* _bucket;
+
+public:
+  Iterator() : _set { nullptr },
+    _key { nullptr },
+    _bucket { nullptr },
+    _index { -1 },
+    _bucketIndex { -1 }
+  {}
+
+  explicit Iterator(const ADS_set* set, Bucket* bucket, const key_type* key, int index, int bucketIndex) :
+           _key { key },
+           _set { set },
+           _bucket { bucket },
+           _index { index },
+           _bucketIndex { bucketIndex }
+  {}
+
+  explicit Iterator(const ADS_set* set) :
+           _key { nullptr },
+           _set { set },
+           _bucket { nullptr },
+           _index { -1 },
+           _bucketIndex { -1 }
+  {}
+
+  void outOfBounds() {
+    _key = nullptr;
+    _bucket = nullptr;
+    _index = -1;
+    _bucketIndex = -1;
+  }
+  reference operator*() const { return *_key; }
+  pointer operator->() const { return _key; }
+  Iterator &operator++() {
+    // First, we need to check if the setpointer is a nullptr
+    if(!_set) return *this;
+    ++_bucketIndex;
+    while(_bucket->_size == static_cast<size_t> (_bucketIndex)){
+      if(!_bucket->_overflow) {
+        if(static_cast<size_t>(_index + 1) == _set->_size) {
+          outOfBounds();
+          return *this;
+        }
+        ++_index;
+        _bucket = _set->_buckets[_index];
+      } else {
+        _bucket = _bucket->_overflow;
+      }
+      _bucketIndex = 0;
+    }
+    _key = _bucket->_records + _bucketIndex;
+    return *this;
+  }
+
+  Iterator operator++(int) {
+    iterator temporaryIterator { *this };
+    operator++();
+    return temporaryIterator;
+  }
+  friend bool operator==(const Iterator &lhs, const Iterator &rhs) {
+    return lhs._set == rhs._set && lhs._bucket == rhs._bucket && lhs._index == rhs._index && lhs._bucketIndex == rhs._bucketIndex;
+  }
+
+  friend bool operator!=(const Iterator &lhs, const Iterator &rhs) {
+    return !(lhs == rhs);
+  }
+};
+
+template <typename Key, size_t N> void swap(ADS_set<Key,N> &lhs, ADS_set<Key,N> &rhs) { lhs.swap(rhs); }
 
 #endif // ADS_SET_H
